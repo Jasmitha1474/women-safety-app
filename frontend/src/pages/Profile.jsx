@@ -14,22 +14,59 @@ export default function Profile() {
 
   const isValidIndianNumber = (num) => /^[6-9]\d{9}$/.test(num);
 
+  // 🧩 Load user info from localStorage or backend
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem("user") || "{}");
+
     if (!u.pin) setUnlocked(true);
+
     setName(u.name || "");
     setPhone(u.phone || "");
-    setContacts(u.contacts?.length ? u.contacts : ["", ""]);
+    setContacts(
+      u.emergency_contacts?.length
+        ? u.emergency_contacts
+        : u.contacts?.length
+        ? u.contacts
+        : ["", ""]
+    );
     setSilent(!!u.silent);
+
+    // Fetch latest from backend if phone exists
+    if (u.phone) {
+      api
+        .get(`/profile/${u.phone}`)
+        .then((res) => {
+          const data = res.data;
+          setName(data.name || "");
+          setPhone(data.phone || "");
+          setContacts(
+            data.emergency_contacts?.length
+              ? data.emergency_contacts
+              : ["", ""]
+          );
+          setSilent(!!data.silent);
+          // Merge pin from local storage to preserve unlock access
+          localStorage.setItem(
+            "user",
+            JSON.stringify({ ...data, pin: u.pin || "" })
+          );
+        })
+        .catch((err) => {
+          console.warn("Profile fetch failed:", err);
+        });
+    }
   }, []);
 
   if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
 
+  // 🧩 Contact handling
   const changeContact = (i, v) =>
     setContacts((c) => c.map((x, idx) => (idx === i ? v : x)));
   const addContact = () => setContacts((c) => [...c, ""]);
-  const removeContact = (i) => setContacts((c) => c.filter((_, idx) => idx !== i));
+  const removeContact = (i) =>
+    setContacts((c) => c.filter((_, idx) => idx !== i));
 
+  // 🧩 Save profile
   const save = async () => {
     const cleanContacts = contacts.map((c) => c.trim()).filter(Boolean);
     if (!isValidIndianNumber(phone)) {
@@ -52,36 +89,56 @@ export default function Profile() {
     }
 
     const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+    // Always send the correct PIN (new one if entered, else stored one)
+    const pinToSend =
+      newPin && newPin.length === 4 ? newPin : user.pin || "";
+
+    if (!pinToSend) {
+      toast.error("PIN missing — please enter your current or new PIN.");
+      return;
+    }
+
     const updated = {
       name: name.trim(),
       phone: phone.trim(),
-      pin: newPin.length === 4 ? newPin : user.pin,
+      pin: pinToSend,
       emergency_contacts: cleanContacts,
+      contacts: cleanContacts, // for backward compatibility
+      silent,
     };
 
     try {
       await api.post("/signup", updated);
+      // Store latest info locally
+      localStorage.setItem("user", JSON.stringify(updated));
+      setNewPin("");
       toast.success("Profile updated successfully!");
     } catch (err) {
       console.error("Profile save failed:", err);
       toast.error("Failed to update backend");
     }
-
-    localStorage.setItem("user", JSON.stringify(updated));
-    setNewPin("");
   };
 
+  // 🧩 Reset setup
   const reset = () => {
     localStorage.removeItem("user");
     toast("Setup cleared. Reload to start over.");
+    setName("");
+    setPhone("");
+    setContacts(["", ""]);
+    setNewPin("");
+    setSilent(false);
   };
 
+  // 🧩 UI
   return (
     <div className="min-h-[calc(100vh-56px)] flex items-start justify-center bg-gray-900 text-white">
       <div className="bg-gray-800 w-full max-w-xl mt-10 p-8 rounded-2xl shadow-lg">
         <h1 className="text-2xl font-bold text-pink-500 mb-6">Profile</h1>
 
         <div className="grid grid-cols-1 gap-4">
+          {/* Name */}
           <div>
             <label className="block text-sm font-semibold mb-1">Name</label>
             <input
@@ -91,6 +148,7 @@ export default function Profile() {
             />
           </div>
 
+          {/* Phone */}
           <div>
             <label className="block text-sm font-semibold mb-1">Phone</label>
             <input
@@ -100,6 +158,7 @@ export default function Profile() {
             />
           </div>
 
+          {/* Emergency Contacts */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-semibold">Emergency Contacts</div>
@@ -132,6 +191,7 @@ export default function Profile() {
             </div>
           </div>
 
+          {/* Silent Mode */}
           <div className="flex items-center gap-3 pt-2">
             <input
               id="silent"
@@ -144,6 +204,7 @@ export default function Profile() {
             </label>
           </div>
 
+          {/* Change PIN */}
           <div>
             <label className="block text-sm font-semibold mb-1">
               Change PIN (optional)
@@ -160,6 +221,7 @@ export default function Profile() {
           </div>
         </div>
 
+        {/* Buttons */}
         <div className="flex gap-3 mt-6">
           <Button
             className="bg-pink-600 hover:bg-pink-700 text-white"

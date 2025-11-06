@@ -11,20 +11,27 @@ function App() {
   const user = localStorage.getItem("user");
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Show Navbar only after one-time setup */}
+    <div className="min-h-screen flex flex-col bg-gray-900 text-white">
+      {/* ✅ Show Navbar only after one-time setup */}
       {user && <Navbar />}
 
+      {/* ✅ Define routes */}
       <Routes>
-        {/* First time -> Signup, otherwise -> SOS */}
+        {/* If user exists, go directly to SOS page; otherwise Signup */}
         <Route path="/" element={user ? <Navigate to="/sos" /> : <Signup />} />
+
+        {/* Main pages */}
         <Route path="/sos" element={<SOS />} />
         <Route path="/map" element={<MapPage />} />
         <Route path="/emergency" element={<Emergency />} />
         <Route path="/profile" element={<Profile />} />
+
+        {/* Redirect any unknown route to home */}
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
 
-      <Toaster position="top-center" />
+      {/* ✅ Global Toaster for notifications */}
+      <Toaster position="top-center" reverseOrder={false} />
     </div>
   );
 }

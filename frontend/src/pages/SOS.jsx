@@ -6,6 +6,7 @@ import {
   InfoWindow,
   useLoadScript,
 } from "@react-google-maps/api";
+import api from "../api"; // make sure this points to backend base URL
 
 const mapContainerStyle = {
   width: "100%",
@@ -22,12 +23,13 @@ export default function SOS() {
   const [loading, setLoading] = useState(false);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+
   const { isLoaded, loadError } = useLoadScript({
-    googleMapsApiKey: "AIzaSyAFjBgvYpRSkPu59tOPyTiOU3XfIdOvzDA", // API KEY
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "YOUR_KEY",
     libraries: ["places"],
   });
 
-  // Get current location
+  // ✅ Get current location
   useEffect(() => {
     if (!("geolocation" in navigator)) {
       toast.error("Location not supported");
@@ -48,27 +50,34 @@ export default function SOS() {
     );
   }, []);
 
-  // Fetch nearby hospitals and police stations
+  // ✅ Fetch nearby hospitals and police
   const fetchNearby = useCallback((current) => {
     if (!window.google) return;
     const service = new window.google.maps.places.PlacesService(
       document.createElement("div")
     );
-    const request = {
-      location: new window.google.maps.LatLng(current.lat, current.lng),
-      radius: 3000,
-      type: ["hospital", "police"],
-    };
-    service.nearbySearch(request, (results, status) => {
-      if (status === window.google.maps.places.PlacesServiceStatus.OK) {
-        setPlaces(results);
-      }
+
+    const searchTypes = ["hospital", "police"];
+    let allResults = [];
+
+    searchTypes.forEach((type) => {
+      const request = {
+        location: new window.google.maps.LatLng(current.lat, current.lng),
+        radius: 3000,
+        type,
+      };
+      service.nearbySearch(request, (results, status) => {
+        if (status === window.google.maps.places.PlacesServiceStatus.OK) {
+          allResults = [...allResults, ...results];
+          setPlaces(allResults);
+        }
+      });
     });
   }, []);
 
-  // Send SOS
+  // ✅ Send SOS Alert
   const handleSOS = async () => {
-    if (!user?.contacts?.length) {
+    if (!user?.emergency_contacts?.length) {
       toast.error("No emergency contacts configured");
       return;
     }
@@ -77,31 +86,37 @@ export default function SOS() {
       return;
     }
 
-    const payload = {
-      name: user.name,
-      phone: user.phone,
-      contacts: user.contacts,
-      location: { lat: loc.lat, lng: loc.lng, accuracy: loc.acc },
-      silent: user.silent,
-    };
+    setLoading(true);
+    toast.loading("Sending SOS...");
 
     try {
-      setLoading(true);
-      const res = await fetch("http://localhost:8000/sos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      // Send to backend FastAPI route
+      await api.post("/sos", {
+        contacts: user.emergency_contacts,
+        lat: loc.lat,
+        lng: loc.lng,
       });
 
-      if (res.ok) toast.success("SOS sent successfully");
-      else toast.error("Failed to send SOS");
-    } catch {
-      toast.error("Network error");
+      toast.dismiss();
+      toast.success("🚨 SOS alert sent successfully!");
+
+      // Optional: auto-call first contact for demo
+      if (user.emergency_contacts.length > 0) {
+        const first = user.emergency_contacts[0];
+        setTimeout(() => {
+          window.location.href = `tel:${first}`;
+        }, 2000);
+      }
+    } catch (err) {
+      toast.dismiss();
+      console.error("SOS error:", err);
+      toast.error("Failed to send SOS alert");
     } finally {
       setLoading(false);
     }
   };
 
+  // ✅ Render
   if (loadError)
     return <div className="text-center text-red-500">Error loading map</div>;
   if (!isLoaded)
@@ -113,6 +128,7 @@ export default function SOS() {
         SafePulse SOS
       </h1>
 
+      {/* SOS Button */}
       <div className="flex justify-center">
         <button
           onClick={handleSOS}
@@ -125,13 +141,15 @@ export default function SOS() {
         </button>
       </div>
 
+      {/* Coordinates display */}
       {loc && (
         <div className="text-center text-sm text-gray-400">
-          Latitude: {loc.lat.toFixed(4)} | Longitude: {loc.lng.toFixed(4)} | Accuracy: ±
+          Latitude: {loc.lat.toFixed(4)} | Longitude: {loc.lng.toFixed(4)} | ±
           {Math.round(loc.acc)} m
         </div>
       )}
 
+      {/* Google Map */}
       <div className="mt-4">
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
@@ -142,18 +160,24 @@ export default function SOS() {
               { elementType: "geometry", stylers: [{ color: "#1f2937" }] },
               { elementType: "labels.text.stroke", stylers: [{ color: "#1f2937" }] },
               { elementType: "labels.text.fill", stylers: [{ color: "#f9fafb" }] },
+              { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+              { featureType: "poi.attraction", stylers: [{ visibility: "off" }] },
+              { featureType: "poi.place_of_worship", stylers: [{ visibility: "off" }] },
             ],
             disableDefaultUI: true,
           }}
         >
+          {/* Current Location */}
           {loc && (
             <Marker
               position={{ lat: loc.lat, lng: loc.lng }}
               icon={{
-                url: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+                url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
               }}
             />
           )}
+
+          {/* Nearby hospitals/police */}
           {places.map((p, i) => (
             <Marker
               key={i}
@@ -164,11 +188,13 @@ export default function SOS() {
               onClick={() => setSelected(p)}
               icon={{
                 url: p.types.includes("police")
-                  ? "http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
-                  : "http://maps.google.com/mapfiles/ms/icons/hospitals.png",
+                  ? "https://maps.google.com/mapfiles/ms/icons/blue-dot.png"
+                  : "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
               }}
             />
           ))}
+
+          {/* InfoWindow */}
           {selected && (
             <InfoWindow
               position={{
@@ -180,6 +206,16 @@ export default function SOS() {
               <div>
                 <h2 className="font-semibold text-gray-900">{selected.name}</h2>
                 <p className="text-xs text-gray-700">{selected.vicinity}</p>
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                    selected.name
+                  )}&destination_place_id=${selected.place_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 text-xs hover:underline"
+                >
+                  🚗 Get Directions
+                </a>
               </div>
             </InfoWindow>
           )}
